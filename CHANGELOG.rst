@@ -1,6 +1,4 @@
-0.3
+0.1.0-alpha
 ===
 
-- Replaced the short flags for ``--no-deps`` and ``--no-install`` from ``-d``
-  and ``-n`` to ``-D`` and ``-I`` respectively, in order to make room for the
-  new ``--pkgname``/``-n``.
+- Initial Alpha Release of PyPI2PKGBUILD-Kuznix
