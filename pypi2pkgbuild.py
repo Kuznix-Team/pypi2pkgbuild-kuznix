@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Convert PyPI entries to Arch Linux packages."""
+"""Convert PyPI entries to Kuznix Linux packages."""
 
 import abc
 from abc import ABC
@@ -11,6 +11,7 @@ from contextlib import suppress
 from functools import lru_cache
 import hashlib
 import importlib.metadata
+import platform
 from io import StringIO
 import json
 import logging
@@ -34,7 +35,7 @@ try:
         version_scheme="post-release", local_scheme="node-and-date")
 except (ImportError, LookupError):
     try:
-        __version__ = importlib.metadata.version("pypi2pkgbuild")
+        __version__ = importlib.metadata.version("pypi2pkgbuild-kuznix")
     except ModuleNotFoundError:
         __version__ = "(unknown version)"
 
@@ -300,7 +301,7 @@ def _run_shell(args, **kwargs):
                       # We'd prefer C.utf8 but that doesn't exist.  With other
                       # locales, outputs cannot be parsed.
                       "LC_ALL": "en_US.UTF-8",
-                      # LANGUAGE is also needed for e.g. pacman which goes
+                      # LANGUAGE is also needed for e.g. kuzpkg which goes
                       # through gettext.
                       "LANGUAGE": "en_US.UTF-8",
                       "PYTHONNOUSERSITE": "1",
@@ -376,7 +377,7 @@ def get_makepkg_conf():
     return dict(pair.split(" ", 1) for pair in out.split("\0"))
 
 
-class ArchVersion(namedtuple("_ArchVersion", "epoch pkgver pkgrel")):
+class KuznixVersion(namedtuple("_KuznixVersion", "epoch pkgver pkgrel")):
     @classmethod
     def parse(cls, s):
         epoch, pkgver, pkgrel = (
@@ -709,20 +710,20 @@ def _find_installed_name_version(pep503_name, *, ignore_vendored=False):
     parts = (
         _run_shell_stdout(
             "find . -maxdepth 1 -iname '%s[.-]*-info' "
-            "-exec pacman -Qo '{}' \\; | rev | cut -d' ' -f1,2 | rev"
+            "-exec kuzpkg -Qo '{}' \\; | rev | cut -d' ' -f1,2 | rev"
             % (to_wheel_name(pep503_name)
                # https://github.com/pypa/wheel/issues/440
                .replace("-", "[-.]").replace("_", "[_.]")),
             cwd=site.getsitepackages()[0]).split()
         or _run_shell_stdout(
-            f"pacman -Q python-{pep503_name} 2>/dev/null",
+            f"kuzpkg -Q python-{pep503_name} 2>/dev/null",
             check=False).split())
     if parts:
         pkgname, version = parts  # This will raise if there is an ambiguity.
         if pkgname.endswith("-git"):
             expected_conflict = pkgname[:-len("-git")]
             if _run_shell(
-                    f"pacman -Qi {pkgname} 2>/dev/null | "
+                    f"kuzpkg -Qi {pkgname} 2>/dev/null | "
                     rf"grep -q 'Conflicts With *:.*\b{expected_conflict}\b'",
                     check=False).returncode == 0:
                 pkgname = pkgname[:-len("-git")]
@@ -734,12 +735,29 @@ def _find_installed_name_version(pep503_name, *, ignore_vendored=False):
         if ignore_vendored and pkgname.startswith("python--"):
             return
         else:
-            return pkgname, ArchVersion.parse(version)
+            return pkgname, KuznixVersion.parse(version)
     else:
         return
 
 
+def _find_kuznix_repo_name_version(pep503_name):
+    """Best-effort repository lookup using kuzpkg search metadata."""
+    out = _run_shell_stdout(
+        f"kuzpkg -Ss {shlex.quote('python-' + pep503_name)} 2>/dev/null",
+        check=False)
+    for line in out.splitlines():
+        match = re.search(r"(?:^|\s)(?:[^/\s]+/)?(python-[^\s]+)\s+([0-9][^\s]*)", line)
+        if match:
+            try:
+                return match.group(1), KuznixVersion.parse(match.group(2))
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
 def _find_arch_name_version(pep503_name):
+    if shutil.which("pkgfile") is None:
+        return _find_kuznix_repo_name_version(pep503_name)
     for standalone in [True, False]:  # vendored into another Python package?
         *candidates, = map(str.strip, _run_shell_stdout(
             "pkgfile -riv "
@@ -765,7 +783,7 @@ def _find_arch_name_version(pep503_name):
                 candidates = [canonical]
         if len(candidates) == 1:
             pkgname, version = candidates[0].split()
-            arch_version = ArchVersion.parse(version)
+            arch_version = KuznixVersion.parse(version)
             return pkgname, arch_version
 
 
@@ -777,13 +795,13 @@ class NonPyPackageRef:
 class PackageRef:
     def __init__(self, name, *,
                  pre=False, guess_makedepends=(), subpkg_of=None):
-        # If `subpkg_of` is set, do not attempt to use the Arch Linux name,
+        # If `subpkg_of` is set, do not attempt to use the Kuznix package name,
         # and name the package python--$pkgname to prevent collision.
         self.orig_name = name  # A name or an URL.
         self.info = _get_info(
             name, pre=pre, guess_makedepends=guess_makedepends)
         self.pypi_name = self.info["info"]["name"]
-        # pacman -Slq | grep '^python-' | cut -d- -f 2- |
+        # kuzpkg -Slq | grep '^python-' | cut -d- -f 2- |
         #     grep -v '^\([[:alnum:]]\)*$' | grep '_'
         # (or '\.', or '-') shows that PEP503 normalization is by far the most
         # common, so we use it everywhere... except when downloading, which
@@ -797,7 +815,7 @@ class PackageRef:
 
         else:
             # For the name as package:  First, check installed packages,
-            # which may have inherited non-standard names from the AUR (e.g.,
+            # which may have inherited non-standard names from the Kuznix repositories (e.g.,
             # `python-numpy-openblas`, `pipdeptree`).  Specifically ignore
             # vendored packages (`python--*`).  Then, check official packages.
             # Then, fallback on the default.
@@ -814,7 +832,7 @@ class PackageRef:
             depname, _ = arch or installed or default
 
         arch_packaged = sorted({*_run_shell_stdout(
-            f"pkgfile -l {pkgname} 2>/dev/null | "
+            f"kuzpkg -Ql {shlex.quote(pkgname)} 2>/dev/null | "
             # Package name has no dash (per packaging standard) nor slashes
             # (which can occur when a subpackage is vendored (depending on how
             # it is done), e.g. `.../foo.egg-info` and `.../foo/bar.egg-info`
@@ -917,8 +935,9 @@ class _BasePackage(ABC):
         # Update PKGBUILD.
         needs_rebuild = False
         # fullpath may not exist if --makepkg=--nobuild.
-        namcap = (_run_shell_stdout(["namcap", fullpath], cwd=cwd).splitlines()
-                  if fullpath.exists() else [])
+        namcap = (
+            _run_shell_stdout(["namcap", fullpath], cwd=cwd).splitlines()
+            if fullpath.exists() and shutil.which("namcap") else [])
         # `pkgver()` may update the PKGBUILD, so reread it.
         pkgbuild_contents = (cwd / "PKGBUILD").read_text()
         # Binary dependencies.
@@ -948,8 +967,9 @@ class _BasePackage(ABC):
             (cwd / "PKGBUILD").write_text(pkgbuild_contents)
             _run_shell("makepkg --force --repackage --nodeps", cwd=cwd)
             fullpath = _get_fullpath()
-        namcap_pkgbuild_report = _run_shell_stdout(
-            "namcap PKGBUILD", cwd=cwd, check=False)
+        namcap_pkgbuild_report = (
+            _run_shell_stdout("namcap PKGBUILD", cwd=cwd, check=False)
+            if shutil.which("namcap") else "")
         # Suppressed namcap warnings (may be better to do this via a namcap
         # option?):
         # - Python dependencies always get misanalyzed; filter them away.
@@ -998,10 +1018,10 @@ class Package(_BasePackage):
 
         self._find_makedepends(options)
         for dep in self._makedepends:
-            if _run_shell(f"pacman -Q {dep.pkgname} >/dev/null 2>&1",
+            if _run_shell(f"kuzpkg -Q {dep.pkgname} >/dev/null 2>&1",
                           check=False).returncode:
                 # Only log this as needed, to not spam messages about pip.
-                _run_shell(f"sudo pacman -S --asdeps {dep.pkgname}",
+                _run_shell(f"sudo kuzpkg -S --asdeps {dep.pkgname}",
                            verbose=True)
         self._extract_setup_requires()
 
@@ -1157,7 +1177,7 @@ class Package(_BasePackage):
                 makedepends.append(pkg)
             elif isinstance(pkg, NonPyPackageRef):
                 pep503_name = _run_shell_stdout(
-                    f"pacman -Qql {pkg.pkgname} | "
+                    f"kuzpkg -Qql {pkg.pkgname} | "
                     f"grep -Po '(?<=^{site.getsitepackages()[0]}/)"
                     r"[^-]*(?=-.*\.(dist|egg)-info/$)'",
                     check=False)
@@ -1445,7 +1465,7 @@ def main():
             setattr(namespace, self.dest, values)
 
     parser = ArgumentParser(
-        description="Create a PKGBUILD for a PyPI package and run makepkg.",
+        description="Create a Kuznix PKGBUILD for a PyPI package and run makepkg.",
         formatter_class=type("", (RawDescriptionHelpFormatter,
                                   ArgumentDefaultsHelpFormatter), {}))
     parser.add_argument("--version", action="version",
@@ -1483,7 +1503,7 @@ def main():
     parser.add_argument(
         "-r", "--pkgrel", default="00",
         help="Force value of $pkgrel (not applicable to metapackages).  "
-             "Set e.g. to 99 to override AUR packages.")
+             "Set e.g. to 99 to override Kuznix repositories packages.")
     parser.add_argument(
         "-g", "--guess-makedepends", metavar="MAKEDEPENDS,...",
         action=CommaSeparatedList, default=("cython", "swig"),
@@ -1515,9 +1535,9 @@ def main():
         dest="install", default="True",
         help="Don't install the built packages.")
     parser.add_argument(
-        "-p", "--pacman", metavar="PACMAN_OPTS",
+        "-p", "--kuzpkg", metavar="KUZPKG_OPTS",
         default="",
-        help="Additional arguments to pass to `pacman -U`.")
+        help="Additional arguments to pass to `kuzpkg -U`.")
     args = parser.parse_args()
     log_level = logging.DEBUG if vars(args).pop("verbose") else logging.INFO
     LOGGER.setLevel(log_level)
@@ -1534,20 +1554,23 @@ def main():
             record.levelno = max(handler_level, record.levelno)
         return True
 
-    LOGGER.debug(f"This is pypi2pkgbuild {__version__}.")
+    LOGGER.debug(f"This is pypi2pkgbuild-kuznix {__version__}.")
+    LOGGER.debug("Platform: %s", platform.platform())
+    LOGGER.debug("kuzpkg: %s", shutil.which("kuzpkg") or "not found")
 
-    # Dependency checking needs to happen after logging is configured.
-    for cmd in ["namcap", "pkgfile"]:
+    # kuzpkg and makepkg are the only required package-management tools.
+    # pkgfile/namcap are optional helpers retained for richer metadata and
+    # package linting when they are available on the Kuznix host.
+    for cmd in ["kuzpkg", "makepkg"]:
         if shutil.which(cmd) is None:
             parser.error(f"Missing dependency: {cmd}")
-    try:
-        _run_shell("pkgfile pkgfile >/dev/null")
-    except CalledProcessError:
-        # "error: No repo files found. Please run `pkgfile --update'."
-        sys.exit(1)
+    if shutil.which("namcap") is None:
+        LOGGER.warning("namcap is not installed; package linting is disabled.")
+    if shutil.which("pkgfile") is None:
+        LOGGER.warning("pkgfile is not installed; repository file lookups use kuzpkg search instead.")
 
-    outdated, upgrade, ignore, install, pacman_opts = map(
-        vars(args).pop, ["outdated", "upgrade", "ignore", "install", "pacman"])
+    outdated, upgrade, ignore, install, kuzpkg_opts = map(
+        vars(args).pop, ["outdated", "upgrade", "ignore", "install", "kuzpkg"])
 
     if not {*args.pkgtypes} <= {*PKGTYPES}:
         parser.error("valid --pkgtypes are: {}".format(", ".join(PKGTYPES)))
@@ -1587,15 +1610,15 @@ def main():
                     for line in cache_entry.namcap_report))
 
     if install and Package.build_cache:
-        cmd = "pacman -U{} {} {}".format(
+        cmd = "kuzpkg -U{} {} {}".format(
             "" if args.build_deps else "dd",
-            pacman_opts,
+            kuzpkg_opts,
             " ".join(shlex.quote(str(cache_entry.path))
                      for cache_entry in Package.build_cache))
         deps = [cache_entry.pkgname for cache_entry in Package.build_cache
                 if cache_entry.is_dep]
         if deps:
-            cmd += "; pacman -D --asdeps {}".format(" ".join(deps))
+            cmd += "; kuzpkg -D --asdeps {}".format(" ".join(deps))
         cmd = "sudo sh -c {}".format(shlex.quote(cmd))
         _run_shell(cmd, check=False, verbose=True)
 
