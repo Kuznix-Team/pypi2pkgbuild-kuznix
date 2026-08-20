@@ -3,14 +3,14 @@ requires = ["setuptools>=61", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pypi2pkgbuild"
-description = "A PyPI to PKGBUILD converter."
+name = "pypi2pkgbuild-kuznix"
+description = "Kuznix fork to a PyPI to PKGBUILD converter."
 readme = "README.rst"
-authors = [{name = "Antony Lee"}]
-urls = {Repository = "https://github.com/anntzer/pypi2pkgbuild"}
+authors = [{name = "Krzysztof Demir Kuźniak"}]
+urls = {Repository = "https://github.com/Kuznix-Team/pypi2pkgbuild-kuznix"}
 license = {text = "MIT"}
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
