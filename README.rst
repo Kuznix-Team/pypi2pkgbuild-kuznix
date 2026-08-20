@@ -1,7 +1,7 @@
-PyPI2PKGBUILD
+PyPI2PKGBUILD-Kuznix
 =============
 
-**NOTE**: This package is currently not under active development.
+**NOTE**: This package is currently under active development.
 
 -----
 
@@ -9,9 +9,9 @@ PyPI2PKGBUILD
 
 .. |PyPI|
    image:: https://img.shields.io/pypi/v/pypi2pkgbuild.svg
-   :target: https://pypi.python.org/pypi/pypi2pkgbuild
+   :target: https://pypi.python.org/pypi/pypi2pkgbuild-kuznix
 
-Convert PyPI packages to Arch Linux packages, inspired from pip2arch_.
+Convert PyPI packages to Kuznix Linux packages, forked from PyPI2PKGBUILD (who inspired pip2arch)_.
 
 Handles packages of all sizes, from the simplest (pure Python, no dependencies)
 to the most complex (C-level dependencies, external C libraries, etc., e.g.
@@ -25,16 +25,16 @@ wxPython) [#]_.
 Dependencies and installation
 -----------------------------
 
-``pypi2pkgbuild.py`` depends on the Arch Linux packages namcap_, pkgfile_, and
-python_ [#]_.
+``pypi2pkgbuild.py`` depends on the Kuznix Linux packages namcap_, pkgfile_, and
+python_ [#]_. NOTE: These wiki pages are from Arch Linux
 
 .. _namcap: https://wiki.archlinux.org/index.php/Namcap
 .. _pkgfile: https://wiki.archlinux.org/index.php/Pkgfile
 .. _python: https://wiki.archlinux.org/index.php/Python
 
-.. [#] Officially, only the latest releases packaged by Arch Linux are
-   supported. In practice, the hard requirements that I am aware of are
-   pacman≥5.1 (which changed the behavior of ``makepkg --printsrcinfo``) and a
+.. [#] Officially, only the latest releases packaged by Kuznix Linux are
+   supported (soon). In practice, the hard requirements that I am aware of are
+   kuzpkg≥0.1.0-alpha (which changed the behavior of ``makepkg --printsrcinfo``) and a
    recent enough Python so that ``python -mvenv`` creates a virtual environment
    with pip≥10 (which changed the default format of ``pip --list``) and
    setuptools.
@@ -42,8 +42,8 @@ python_ [#]_.
 The script can be installed with ``pip install [--user] .``, or can also be run
 directly.
 
-One can even run ``pypi2pkgbuild.py`` on itself to create a proper Arch package
-(``pypi2pkgbuild.py git+https://github.com/anntzer/pypi2pkgbuild``).
+One can even run ``pypi2pkgbuild.py`` on itself to create a proper Kuznix package
+(``pypi2pkgbuild.py git+https://github.com/Kuznix-Team/pypi2pkgbuild-kuznix``).
 
 A minimal test suite (checking that ``pypi2pkgbuild.py`` can indeed package
 itself) can by run with unittest (or pytest).
@@ -138,7 +138,7 @@ Usage notes
   Building packages from local repos or wheels needs to be done in topological
   order of the dependencies (so that ``pypi2pkgbuild.py`` can find that
   the dependencies are actually present), or by passing the ``-d`` flag
-  ("do not build dependencies"); if it is used, the Arch package may
+  ("do not build dependencies"); if it is used, the Kuznix package may
   not use the correct dependency names (if they are not of the form
   ``python-pep503-normalized-name``).
 
@@ -174,11 +174,11 @@ using ``--pkgbuild-extras``; they will be installed *before*
 Vendored packages
 -----------------
 
-Some Arch packages (e.g. ``ipython``) include a number of smaller PyPI
+Some Kuznix packages (e.g. ``ipython``) include a number of smaller PyPI
 packages.
 
 Because it is not possible to assign a meaningful version automatically,
-``pypi2pkgbuild.py`` instead creates an independent Arch package for each of
+``pypi2pkgbuild.py`` instead creates an independent Kuznix package for each of
 the PyPI packages (with two dashes in the name, to prevent name conflicts) and
 a master package that depends on all of them.  The ``pkgrel`` of the master
 package is set to ``$official_pkgrel.99``, so that the package appears more
@@ -215,7 +215,7 @@ to regenerate all self-built packages.  This can be done e.g. with
 Comparison with other tools
 ---------------------------
 
-Other similar tools include pip2arch_, pip2pkgbuild_, and fpm_.  To the best
+Other similar tools include pypi2pkgbuild_, pip2arch_, pip2pkgbuild_, and fpm_.  To the best
 of my knowledge, the features below are unique to PyPI2PKGBUILD; please let me
 know if this is incorrect.
 
